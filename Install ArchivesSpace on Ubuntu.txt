@@ -1,0 +1,142 @@
+ARCHIVESSPACE Installation in 15 steps on Ubuntu Linux as a service
+(Step by Step using a virtual machine)
+
+1.) Install Ubuntu LTE Desktop 20.04.1 Minimal Install
+	Notes: for VCENTER/ESXi Installations only:
+			When installing on ESXi/Vcenter you will have to choose to use a network adapter of these types:
+			VMXNET3 
+			E1000
+			VMXNET3 requires drivers to work, driver that come from the install of VMWare tools. Prior to that you will have no network.
+			E1000 doesn't require any software but must be manually selected when creating the vm prior to powering it on the first time.
+			VMXNET3 is the higher performing network adapter but most will not notice the difference with this type of application
+			Ironically VMWare recommends the install of "open-vm-tools" and not their own which do not provide the driver for VMXNET3
+				If your using VCenter/ESXi, to install the open VM tools, after the OS is installed, and the network card is working:
+				open terminal
+				sudo apt install open-vm-tools open-vm-tools-desktop
+
+2.) Install Java 1.8 and verify:
+	open terminal
+	sudo apt install openjdk-8-jdk
+	java -version
+
+3.) (OPTIONAL) For diagnosing hosted ports later.
+	open terminal
+	sudo apt install net-tools
+
+4.) Install MySQL, configure, and verify the service
+	open terminal
+	sudo apt install mysql-server
+	sudo su
+	sudo mysql_secure_installation
+		No validate
+		Set root password
+		Remove anonymous users - Y
+		Disable remote root login - Y
+		Remove test Db - Y
+		Reload privilege tables - Y
+	sudo service mysql status
+	close the terminal window
+
+5.) Create MySQL DB, verify, create user, set privledges, set "global":
+	open terminal
+	sudo mysql (you'll arrive at mysql> prompt) 
+		create database archivesspace default character set utf8mb4;
+		SHOW DATABASES; (verify the archivesspace db exists)
+		create user 'as'@'localhost' identified by 'as123'; 
+		grant all privileges on archivesspace.* to 'as'@'localhost';
+		SET GLOBAL log_bin_trust_function_creators = 1;
+		exit
+	sudo service mysql status
+
+6.) Copy the archivesspace folder from the zip file to /home/asuser/archivesspace
+
+7.) Install mysql java connector (use the same version as your MySql)
+	open terminal
+	sudo apt install curl
+	cd ~/archivesspace/lib
+	sudo curl -Oq https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.23/mysql-connector-java-8.0.23.jar 
+	ls mysql* 
+
+8.) Modify the main config file with 3 changes
+	open terminal
+	cd ~/archivesspace/config
+	gedit ./config.rb
+	Around line 16, add a new line and paste in the next line (left justified) 
+	   AppConfig[:db_url] = "jdbc:mysql://localhost:3306/archivesspace?user=as&password=as123&useUnicode=true&characterEncoding=UTF-8"
+	Around line 346, Find the following two lines and remove the # from the front of each line. Also change the first line from false to true
+		AppConfig[:use_jetty_shutdown_handler] = true
+		AppConfig[:jetty_shutdown_path] = "/xkcd"
+	Save the file
+
+9.) Setup the database
+	open terminal
+	cd ~/archivesspace/scripts
+	./setup-database.sh
+
+10.) Run the program first time (takes several minutes to fully startup)
+	open terminal 
+	cd ~/archivesspace
+	./archivesspace.sh
+	wait 5 minutes
+	open a second terminal
+	type ifconfig and look for your IP address "inet" .. not the one under 
+	try to access http://ipaddress of your_server:8080
+	ctrl c and close it
+
+11.) Test using the provided script to start and stop it...
+	open terminal 
+	cd /archivesspace
+	./archivesspace.sh start
+	./archivesspace.sh stop
+	./archivesspace.sh status
+
+12.) Set up to run as a service/daemon by creating a service file
+	open terminal
+	sudo gedit /lib/systemd/system/archivesspace.service
+	add the contents below (must be left justified) and save the file, exit gedit.
+
+            # START OF FILE   
+            # ArchivesSpace systemd service file.
+   
+            [Unit]
+            Description=ArchivesSpace Application
+            After=syslog.target network.target
+
+            [Install]
+            WantedBy=multi-user.target
+
+            [Service]
+            Type=forking
+            ExecStart=/home/asuser/archivesspace/archivesspace.sh start
+            ExecStop=/home/asuser/archivesspace/archivesspace.sh stop
+            # PIDFile=/home/asuser/archivesspace/archivesspace.pid
+            User=asuser
+            Group=asuser
+            Restart=on-failure
+            RestartSec=20s
+            # END OF FILE  
+   
+13.) Create symbolic link 
+	open terminal
+	cd /etc/systemd/system
+	sudo ln -s /lib/systemd/system/archivesspace.service
+	sudo systemctl daemon-reload
+
+14.) Test the service file works to start and stop the service
+	open terminal
+	sudo systemctl start archivesspace.service
+	sudo systemctl status archivesspace.service
+	netstat -ant (look for tcp/8080 etc)
+	https://ipaddress:8080 (confirm its working)
+	sudo systemctl stop  archivesspace.service
+	Note: Troubleshooting SystemD logs that are helpful run from terminal
+		journalctl  -xe
+		sudo cat /var/log/dmesg
+
+15.) Enable the new service to run on boot
+	open terminal
+	sudo systemctl enable archivesspace.service
+	reboot
+	wait a few minutes, test it without logging into Ubuntu from another computer.
+	https://ipaddress:8080 (from another computer on your network and confirm its working)
+
