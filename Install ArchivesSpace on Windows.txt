@@ -1,0 +1,155 @@
+ARCHIVESSPACE Installation in 15 steps on Windows 2019 Server as a service
+(Step by Step using a virtual machine)
+
+1.) Install Windows 2019 Server (Desktop Experience)
+	After completing Windows 2019 Server
+		Set the time zone
+		Install VMWare tools taking defaults, and reboot
+
+2.) Install Java 1.8
+	Download (you'll need to setup a free Oracle account)
+		https://www.oracle.com/java/technologies/oracle-java-archive-downloads.html
+		jre-8-windows-x64.exe - install it
+	Open Control panel | type java in the search (upper right) and open the Java control panel
+		Click on JAVA tab, click view and record the path: example C:\Program Files\Java\jre8\bin\javaw.exe (you will need to know the path, without the filename on the end, in the next step)
+		Close the Java control panel.
+3.) Configure a new variable and modify the system path
+	In the Windows control panel | type 'system' without the quotes in the search (upper right) and select "Edit the system environment variables" 
+		Click Environmental variables button at the bottom
+		In the bottom 1/2 of the screen (System Variables) find "PATH", click edit, click new, and paste in the path of java without the file name in the new line, and click OK. Example:
+			C:\Program Files\Java\jre8\bin\
+		In the bottom 1/2 of the screen (System Variables) click "NEW" and add it as follows
+			Variable Name: JAVA_HOME
+			Variable Value: C:\Program Files\Java\jre8
+			and click OK, and click OK to close the system environment variables dialog, and click OK to close system properties
+	Reboot the computer
+	Open a command prompt
+		set | find "java" /I
+		confirm your path statement contains a path to java's bin folder
+		confirm your JAVA_HOME is also correct pointing to the jre install folder
+
+
+4.) Prerequisites in Windows
+	Manage the firewall (for our demo we turn it off, but you can to permit just tcp 8080, 8081, 8082, 8089, 8090, 8091 etc)
+		Open control panel, and type firewall at the top right.  
+		Click on "Windows Defender Firewall"
+		Click on "Turen Windows Defender Firewall on or off"
+		Under each section on the main screen (public, private, and domain if present, select "Turn of Defender Firewall"
+		Remember if you wish to turn it back on, you will need to do extra work to allow the program ports thru the firewall, and turn it back on here.
+	Check for .Net Framework 4.7
+		Click Windows icon bottom left, start typing server manager and click the "server manager" desktop app
+		Add roles and features, Next, Next, Next
+		Do not change roles, and click Next
+		In features, expand .NET framework 4.7 features, and just confirm .NET framework 4.7 is installed.
+			If yes, click cancel, if not, check it and forward thru this wizard to complete the install; reboot after
+	Optional items: (instructions for each are not here but discussed in the video
+		Optionally Set the IP address to a static address (highly recommended for production environments)
+		Optionally Join a domain (recommended for a production environment where the company has an active directory. We recommend you wait to do this until after the setup is fully complete and tested.
+
+5.) Install MySQL, configure, and verify the service
+	Download the file from https://dev.mysql.com/downloads/installer/
+		File name: mysql-installer-community-8.0.24.0.msi
+		Run the file and select:
+		Server only | Next | Execute
+		Next
+		Select Use legacy | Next
+		Set the password | Next
+		Take defaults on Windows service | Next | Execute | Finish
+		Next | Finish
+
+6.) Create MySQL DB, verify, create user, set privileges, set "global":
+	From the start menu | open MySQL 8.0 Command Line Client (you'll arrive at mysql> prompt) 
+		create database archivesspace default character set utf8mb4;
+		SHOW DATABASES; (verify the archivesspace db exists)
+		create user 'as'@'localhost' identified by 'as123'; 
+		grant all privileges on archivesspace.* to 'as'@'localhost';
+		SET GLOBAL log_bin_trust_function_creators = 1;
+		exit
+
+7.) Copy the archivesspace folder from the zip file to c:/archivesspace
+	To do this, just right click the zip file, select extract to, and select C:\
+	It will take a few minutes
+
+8.) Install mysql java connector (use the same version as your MySql)
+	Download the software at https://dev.mysql.com/downloads/connector/j/
+	The download file name is: mysql-connector-java-8.0.24.zip
+	The file inside the zip file we need is called mysql-connector-java-8.0.24.jar
+	Copy the mysql-connector-java-8.0.24.jar file into the folder C:\archivesspace\lib
+
+9.) Modify the main config file with 3 changes
+	Use Notepad to open c:\archivesspace\config\config.rb
+	Around line 16, add a new line and paste in the next line (left justified) 
+	   AppConfig[:db_url] = "jdbc:mysql://localhost:3306/archivesspace?user=as&password=as123&useUnicode=true&characterEncoding=UTF-8"
+	Around line 346, Find the following two lines and remove the # from the front of each line. Also change the first line from false to true
+		AppConfig[:use_jetty_shutdown_handler] = true
+		AppConfig[:jetty_shutdown_path] = "/xkcd"
+	Save the file and exit Notepad
+
+10.) Setup the database
+	open command prompt as administrator (important to run as administrator)
+	cd c:\archivesspace\scripts
+	setup-database.bat
+		Watch the setup script for errors
+		It should finish with "all done" if it worked correctly
+	close command prompt
+
+11.) Run the program first time (takes several minutes to fully startup)
+	open command prompt, not as administrator this time (we'll refer to this as command prompt 1)
+	cd c:\archivesspace
+	archivesspace.bat
+	wait 5 minutes
+	open a second terminal (command prompt 2)
+	netstat -an -p tcp | find "80" and wait till you see all the ports, specifically 8080 in a listening state
+	try to access http://ipaddress_of_your_server:8080, login as admin, admin and then logout
+		If you do not know the IP address of your server type ipconfig and look for your IP address
+		Login as username admin password admin
+		Create a test repository inside the program.
+		logout 
+	back in command prompt 1... 
+	ctrl c and y to terminate batch job to close it
+
+12.) Install executables required to create services
+	Download the software from https://downloads.apache.org/commons/daemon/binaries/windows/
+	Filename: commons-daemon-1.2.4-bin-windows.zip 
+	open zip and copy prunmgr.exe and prunsrv.exe to c:\archivespace\
+	
+
+13.) Set up to run as a service and modify the service recovery
+	open command prompt as administrator (important to run as administrator)
+	cd c:\archivesspace\launcher
+	service.bat
+		It will first show informational text about requirements	
+		Press your spacebar to finish
+		Closet the command prompt	
+		Check in the c:\archivesspace folder for two new executables named:
+			ArchivesSpaceService.exe - which is the actual service that will run all the time to make the application available
+			ArchiveSspaceServicew.exe - (note: ends in a w) which is used to manage or monitor the service, but is not required to always be running. We use this to configure the service later.
+	Click Windows icon bottom left, start typing services and click the "services" desktop app
+	Locate the ArchivesSpaceService and double-click it
+	Click on the recovery tab and set first, second and third failure to 'restart the service"
+	Leave the "restart service after" to 1 minute
+
+14.) Modify the service and test start it using the new service executable
+	open command prompt as administrator
+	cd c:\archivesspace\
+	ArchivesSpaceServicew.exe //ES//
+		On the Java tab set the Java Virtual Machine to the java install directory/bin/server/jvm.dll ... example
+			C:\Program Files\Java\jre8\bin\server\jvm.dll
+		On the startup folder, set the working path to your archivesspace folder ... example
+			C:\archivesspace
+		Click APPLY
+		On the general tab click START
+		Click start
+			The services should start
+	open a second terminal (command prompt 2)
+	type ipconfig and look for your IP address
+	netstat -an -p tcp | find "80" and wait till you see all the ports, specifically 8080 in a listening state
+	try to access http://ipaddress_of_your_server:8080, login as admin, admin and then logout
+
+15.) Finally Test the fully built Server by rebooting
+	reboot the server
+	Wait 3 or 4 minutes and don't login to the Windows server at all
+	try to access http://ipaddress_of_your_server:8080, login as admin, admin and then logout
+
+
+
